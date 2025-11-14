@@ -7,22 +7,48 @@ import * as XLSX from 'xlsx'
 interface ExcelUploaderProps {
   onFileUpload: (file: File, formatA: any[], formatB: any[]) => void
   isAdmin?: boolean
+  onConfirm?: (file: File | null, formatA: any[] | null, formatB: any[] | null) => void
 }
 
-export default function ExcelUploader({ onFileUpload, isAdmin = false }: ExcelUploaderProps) {
+export default function ExcelUploader({ onFileUpload, isAdmin = false, onConfirm }: ExcelUploaderProps) {
   const [isDragging, setIsDragging] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
   const [preview, setPreview] = useState<any>(null)
+  const [lastFormatB, setLastFormatB] = useState<any[] | null>(null)
+  const [lastFormatA, setLastFormatA] = useState<any[] | null>(null)
+  const [lastFile, setLastFile] = useState<File | null>(null)
+  const [isConfirmed, setIsConfirmed] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const transformFormatAToB = (data: any[]) => {
-    return data.map((row, idx) => ({
-      id: idx + 1,
-      timestamp: new Date().toISOString(),
-      ...row,
-      processed: true,
-      processedDate: new Date().toLocaleDateString('pt-BR'),
-    }))
+    // mapa de códigos para bancos (pode ser estendido)
+    const bankMap: Record<string, number> = {
+      'ITAU': 1,
+      'BRADESCO': 2,
+      'CAIXA': 3,
+      'BANCO DO BRASIL': 4,
+      'BANCO DO BRASIL S.A.': 4,
+      'SANTANDER': 5,
+      'SANTANDER BRASIL': 5,
+      'BB': 4,
+      'ITAU UNIBANCO': 1,
+    }
+
+    const normalizeBankName = (name: any) => {
+      if (!name) return ''
+      return String(name).toUpperCase().replace(/[^A-Z0-9 ]+/g, '').trim()
+    }
+
+    return data.map((row, idx) => {
+      const rawBank = normalizeBankName(row.NOME_DO_BANCO || row.nome_do_banco || row.Banco)
+      const bankCode = bankMap[rawBank] ?? 99
+      const seq = String(idx + 1).padStart(3, '0')
+      return {
+        NUM_BANCO: `${bankCode}-${seq}`,
+        ID_CLIENTE: row.ID_CLIENTE ?? row.id_cliente ?? row.Id ?? '',
+        VALOR_TRANSACAO: row.VALOR_TRANSACAO ?? row.valor_transacao ?? row.Valor ?? 0,
+      }
+    })
   }
 
   const processExcelFile = (file: File) => {
@@ -44,8 +70,11 @@ export default function ExcelUploader({ onFileUpload, isAdmin = false }: ExcelUp
           rowsB: formatB.length,
           sample: formatB.slice(0, 3),
         })
-
+        setIsConfirmed(false)
         onFileUpload(file, formatA, formatB)
+        setLastFormatB(formatB)
+        setLastFormatA(formatA)
+        setLastFile(file)
         setIsProcessing(false)
       } catch (error) {
         console.error('[v0] Error processing file:', error)
@@ -141,36 +170,115 @@ export default function ExcelUploader({ onFileUpload, isAdmin = false }: ExcelUp
             </div>
           </div>
 
-          {preview.sample.length > 0 && (
-            <div className="bg-background rounded overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="border-b border-border">
-                  <tr>
-                    <th className="text-left px-4 py-2 font-semibold text-foreground">ID</th>
-                    <th className="text-left px-4 py-2 font-semibold text-foreground">Data</th>
-                    <th className="text-left px-4 py-2 font-semibold text-foreground">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {preview.sample.map((row: any, idx: number) => (
-                    <tr key={idx} className="border-b border-border hover:bg-muted">
-                      <td className="px-4 py-2 text-foreground">{row.id}</td>
-                      <td className="px-4 py-2 text-muted-foreground text-xs">{row.processedDate}</td>
-                      <td className="px-4 py-2">
-                        <span className="bg-foreground/10 text-foreground px-2 py-1 rounded text-xs font-medium">
-                          ✓ Processado
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          {!isConfirmed && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Antes - Formato A (amostra) */}
+              <div className="bg-background rounded overflow-x-auto p-2">
+                <h4 className="text-sm font-semibold text-foreground mb-2">Antes (Formato A) — Amostra</h4>
+                {lastFormatA && lastFormatA.length > 0 ? (
+                  (() => {
+                    const sampleA = lastFormatA.slice(0, 5)
+                    const colsA = Object.keys(sampleA[0] || {})
+                    return (
+                      <table className="w-full text-sm">
+                        <thead className="border-b border-border">
+                          <tr>
+                            {colsA.map((c) => (
+                              <th key={c} className="text-left px-3 py-2 font-semibold text-foreground">{c}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {sampleA.map((row: any, idx: number) => (
+                            <tr key={idx} className="border-b border-border hover:bg-muted">
+                              {colsA.map((c) => (
+                                <td key={c} className="px-3 py-2 text-foreground truncate">{String(row[c] ?? '')}</td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )
+                  })()
+                ) : (
+                  <p className="text-sm text-muted-foreground">Sem amostra do formato original</p>
+                )}
+              </div>
+
+              {/* Depois - Formato B (amostra) */}
+              <div className="bg-background rounded overflow-x-auto p-2">
+                <h4 className="text-sm font-semibold text-foreground mb-2">Depois (Formato B) — Amostra</h4>
+                {preview.sample && preview.sample.length > 0 ? (
+                  <table className="w-full text-sm">
+                    <thead className="border-b border-border">
+                      <tr>
+                        <th className="text-left px-4 py-2 font-semibold text-foreground">NUM_BANCO</th>
+                        <th className="text-left px-4 py-2 font-semibold text-foreground">ID_CLIENTE</th>
+                        <th className="text-left px-4 py-2 font-semibold text-foreground">VALOR_TRANSACAO</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {preview.sample.map((row: any, idx: number) => (
+                        <tr key={idx} className="border-b border-border hover:bg-muted">
+                          <td className="px-4 py-2 text-foreground">{row.NUM_BANCO}</td>
+                          <td className="px-4 py-2 text-muted-foreground text-xs">{row.ID_CLIENTE}</td>
+                          <td className="px-4 py-2">{row.VALOR_TRANSACAO}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <p className="text-sm text-muted-foreground">Sem amostra do formato transformado</p>
+                )}
+              </div>
             </div>
           )}
 
-          <Button className="w-full bg-foreground text-background hover:bg-foreground/90">
+          <Button
+            className="w-full bg-foreground text-background hover:bg-foreground/90"
+            onClick={() => {
+              setIsConfirmed(true)
+              if (typeof onConfirm === 'function') {
+                try {
+                  onConfirm(lastFile, lastFormatA, lastFormatB)
+                } catch (err) {
+                  console.error('[v0] erro em onConfirm:', err)
+                }
+              }
+            }}
+          >
             Confirmar e Salvar
           </Button>
+
+          {isConfirmed && (
+            <div className="p-4 bg-background rounded text-center">
+              <p className="text-sm text-muted-foreground">Processamento confirmado</p>
+              <p className="text-2xl font-bold text-foreground mt-2">{preview.rowsB} linhas processadas</p>
+              <div className="mt-3 grid gap-2">
+                {lastFormatB && (
+                  <Button
+                    onClick={() => {
+                      try {
+                        const wb = XLSX.utils.book_new()
+                        const ws = XLSX.utils.json_to_sheet(lastFormatB)
+                        XLSX.utils.book_append_sheet(wb, ws, 'transformado')
+                        XLSX.writeFile(wb, `${preview.fileName || 'transformado'}-b.xlsx`)
+                      } catch (err) {
+                        console.error('Erro ao gerar arquivo:', err)
+                      }
+                    }}
+                    className="w-full border-border"
+                  >
+                    Baixar Transformado (.xlsx)
+                  </Button>
+                )}
+
+                <Button variant="outline" onClick={() => setIsConfirmed(false)} className="border-border">
+                  Ver amostra
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

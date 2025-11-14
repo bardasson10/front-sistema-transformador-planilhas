@@ -1,9 +1,11 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import ExcelUploader from '@/components/excel/excel-uploader'
+import { useUploads } from '@/components/uploads/uploads-context'
 import ClientFileManager from '@/components/file-manager/client-file-manager'
 
 interface ClientDashboardProps {
@@ -17,6 +19,7 @@ interface MonthlyFiles {
 }
 
 export default function ClientDashboard({ user, onLogout }: ClientDashboardProps) {
+  const router = useRouter()
   const [activeTab, setActiveTab] = useState<'upload' | 'downloads'>('upload')
   const [uploadedFiles, setUploadedFiles] = useState<any[]>([])
   const [processedFiles, setProcessedFiles] = useState<MonthlyFiles[]>([
@@ -33,6 +36,8 @@ export default function ClientDashboard({ user, onLogout }: ClientDashboardProps
       ],
     },
   ])
+
+  const uploadsCtx = useUploads()
 
   const handleFileUpload = (file: File, formatA: any[], formatB: any[]) => {
     console.log('[v0] Client uploaded file:', file.name, 'Rows:', formatB.length)
@@ -56,6 +61,23 @@ export default function ClientDashboard({ user, onLogout }: ClientDashboardProps
       })
     } else {
       setProcessedFiles(prev => [...prev, { month: `${currentMonth} ${new Date().getFullYear()}`, files: [newFile] }])
+    }
+    // also register upload in global uploads store for admin
+    try {
+      const { addUpload } = uploadsCtx
+      addUpload({
+        id: Date.now().toString(),
+        ownerId: user.id,
+        ownerName: user.name,
+        ownerEmail: user.email,
+        name: newFile.name,
+        uploadDate: newFile.uploadDate,
+        records: newFile.records,
+        originalData: formatA,
+        processedData: formatB,
+      })
+    } catch (err) {
+      console.warn('[v0] Não foi possível registrar upload no store global', err)
     }
   }
 
@@ -110,7 +132,7 @@ export default function ClientDashboard({ user, onLogout }: ClientDashboardProps
                 <CardTitle>Envie seus Arquivos Excel</CardTitle>
               </CardHeader>
               <CardContent>
-                <ExcelUploader onFileUpload={handleFileUpload} isAdmin={false} />
+                <ExcelUploader onFileUpload={handleFileUpload} isAdmin={false} onConfirm={() => { onLogout(); router.push('/'); }} />
               </CardContent>
             </Card>
           </div>

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { signIn } from 'next-auth/react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 
@@ -40,11 +41,11 @@ export default function AuthPage({ onLogin }: AuthPageProps) {
       <div className="w-full max-w-md">
         {/* Header */}
         <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-foreground mb-2">DataFlow</h1>
-          <p className="text-muted-foreground">Gestão Profissional de Dados</p>
+          <h1 className="text-4xl font-bold text-foreground mb-2">Sistema Teste</h1>
+          <p className="text-muted-foreground">Gestão l de Dados</p>
         </div>
 
-        <Card>
+        <Card className="border-border w-fit">
           <CardHeader>
             <CardTitle>
               {isSignup ? 'Criar Conta' : 'Entrar'}
@@ -116,6 +117,35 @@ export default function AuthPage({ onLogin }: AuthPageProps) {
               {isSignup ? 'Cadastrar' : 'Entrar'}
             </Button>
 
+            <div className="flex  w-full gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => onLogin({
+                  id: 'admin-demo',
+                  email: 'admin@demo.local',
+                  name: 'Administrador Demo',
+                  type: 'admin'
+                })}
+                className="flex-1"
+              >
+                Entrar como Admin (demo)
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => onLogin({
+                  id: 'client-demo',
+                  email: 'client@demo.local',
+                  name: 'Cliente Demo',
+                  type: 'client'
+                })}
+                className="flex-1"
+              >
+                Entrar como Cliente (demo)
+              </Button>
+            </div>
+
             <div className="relative my-4">
               <div className="absolute inset-0 flex items-center">
                 <div className="w-full border-t border-border"></div>
@@ -124,6 +154,14 @@ export default function AuthPage({ onLogin }: AuthPageProps) {
                 <span className="px-2 bg-card text-muted-foreground">ou</span>
               </div>
             </div>
+
+            <Button
+              type="button"
+              onClick={() => signIn('google')}
+              className="w-full mb-2 border-border"
+            >
+              Entrar com Google
+            </Button>
 
             <Button
               type="button"

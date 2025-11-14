@@ -1,9 +1,13 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { useUploads } from '@/components/uploads/uploads-context'
+import * as XLSX from 'xlsx'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import ExcelUploader from '@/components/excel/excel-uploader'
+import ClientSelector from './client-selector'
 
 interface AdminDashboardProps {
   user: { id: string; email: string; name: string; type: 'admin' | 'client' }
@@ -29,62 +33,74 @@ interface ClientData {
 }
 
 export default function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
+  const router = useRouter()
   const [activeTab, setActiveTab] = useState<'download' | 'transform'>('download')
   const [selectedClient, setSelectedClient] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
 
-  const [clients, setClients] = useState<ClientData[]>([
-    {
-      id: '1',
-      name: 'Tech Solutions',
-      email: 'contato@techsolutions.com',
-      uploadedFiles: [
-        {
-          id: '1',
-          name: 'relatorio_janeiro_2025.xlsx',
-          uploadDate: '2025-01-15',
-          month: 'Janeiro',
-          status: 'Processado',
-          recordsCount: 1250,
-          size: '2.4 MB',
-          transformedFormat: [{ id: 1, timestamp: '2025-01-15T10:30:00', data: 'processado' }],
-        },
-        {
-          id: '2',
-          name: 'relatorio_fevereiro_2025.xlsx',
-          uploadDate: '2025-02-10',
-          month: 'Fevereiro',
-          status: 'Processado',
-          recordsCount: 1450,
-          size: '2.8 MB',
-        },
-      ],
-    },
-    {
-      id: '2',
-      name: 'Global Services',
-      email: 'admin@globalservices.com',
-      uploadedFiles: [
-        {
-          id: '3',
-          name: 'dados_janeiro_2025.xlsx',
-          uploadDate: '2025-01-20',
-          month: 'Janeiro',
-          status: 'Processado',
-          recordsCount: 980,
-          size: '1.9 MB',
-        },
-      ],
-    },
-  ])
+  const uploadsCtx = useUploads()
+
+  // derive clients from uploads store
+  const clientsFromUploads = uploadsCtx.uploads.reduce((acc: { [k: string]: ClientData }, u) => {
+    const key = u.ownerId || u.ownerEmail || u.ownerName
+    if (!acc[key]) {
+      acc[key] = {
+        id: key,
+        name: u.ownerName || u.ownerEmail || 'Cliente',
+        email: u.ownerEmail || '',
+        uploadedFiles: [],
+      }
+    }
+    acc[key].uploadedFiles.push({
+      id: u.id,
+      name: u.name,
+      uploadDate: u.uploadDate,
+      month: '',
+      status: 'Processado',
+      recordsCount: u.records,
+      size: '',
+      transformedFormat: u.processedData,
+    })
+    return acc
+  }, {})
+
+  const clients: ClientData[] = Object.values(clientsFromUploads)
+
+  // include registered clients without uploads
+  uploadsCtx.clients.forEach(c => {
+    if (!clients.find(cl => cl.id === c.id)) {
+      clients.push({ id: c.id, name: c.name, email: c.email || '', uploadedFiles: [] })
+    }
+  })
 
   const handleDownloadFile = (clientName: string, fileName: string) => {
     console.log(`[v0] Iniciando download do arquivo: ${fileName} do cliente: ${clientName}`)
     // Simulação de download
-    const link = document.createElement('a')
-    link.href = `/files/${clientName}/${fileName}`
-    link.download = fileName
-    link.click()
+    // try to find transformed data and download as xlsx
+    try {
+      const client = clients.find(c => c.name === clientName)
+      if (!client) {
+        throw new Error('Cliente não encontrado')
+      }
+      const file = client.uploadedFiles.find(f => f.name === fileName)
+      if (!file) throw new Error('Arquivo não encontrado')
+
+      if (file.transformedFormat && file.transformedFormat.length > 0) {
+        const wb = XLSX.utils.book_new()
+        const ws = XLSX.utils.json_to_sheet(file.transformedFormat)
+        XLSX.utils.book_append_sheet(wb, ws, 'transformado')
+        XLSX.writeFile(wb, `${fileName.replace(/\.[^.]+$/, '')}-transformado.xlsx`)
+        return
+      }
+
+      // fallback: trigger a simple download link (simulação)
+      const link = document.createElement('a')
+      link.href = `/files/${clientName}/${fileName}`
+      link.download = fileName
+      link.click()
+    } catch (err) {
+      console.error('[v0] Erro ao preparar download:', err)
+    }
   }
 
   const groupFilesByMonth = (files: FileData[]) => {
@@ -209,6 +225,41 @@ export default function AdminDashboard({ user, onLogout }: AdminDashboardProps) 
             </div>
 
             {/* Clients List with Files */}
+            <div className="mb-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Clientes Cadastrados</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {uploadsCtx.clients.length === 0 ? (
+                    <p className="text-muted-foreground">Nenhum cliente cadastrado</p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="border-b border-border">
+                          <tr>
+                            <th className="text-left px-4 py-2">Nome</th>
+                            <th className="text-left px-4 py-2">Email</th>
+                            <th className="text-left px-4 py-2">Ações</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {uploadsCtx.clients.map((c) => (
+                            <tr key={c.id} className="border-b hover:bg-muted">
+                              <td className="px-4 py-2 font-medium text-foreground">{c.name}</td>
+                              <td className="px-4 py-2 text-muted-foreground">{c.email}</td>
+                              <td className="px-4 py-2">
+                                <a href={`/clients/${c.id}`} className="text-primary underline">Ver arquivos</a>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
             <div className="space-y-4">
               {filteredClients.length === 0 ? (
                 <Card>
@@ -306,7 +357,39 @@ export default function AdminDashboard({ user, onLogout }: AdminDashboardProps) 
               <CardTitle>Upload e Transformação de Planilhas</CardTitle>
             </CardHeader>
             <CardContent>
-              <ExcelUploader onFileUpload={() => {}} isAdmin={true} />
+              <div className="space-y-4">
+                <ClientSelector />
+                <ExcelUploader
+                  onFileUpload={(file, formatA, formatB) => {
+                    // when admin uploads here, must have selected client in selector
+                    const selected = (document.getElementById('admin-client-select') as HTMLSelectElement | null)?.value
+                    if (!selected) {
+                      alert('Selecione um cliente antes de enviar')
+                      return
+                    }
+                    const client = uploadsCtx.getClientById(selected)
+                    if (!client) {
+                      alert('Cliente inválido')
+                      return
+                    }
+                    // register upload under selected client
+                    uploadsCtx.addUpload({
+                      id: Date.now().toString(),
+                      ownerId: client.id,
+                      ownerName: client.name,
+                      ownerEmail: client.email || '',
+                      name: file.name.replace('.xlsx', '_processado.xlsx').replace('.xls', '_processado.xlsx'),
+                      uploadDate: new Date().toLocaleDateString('pt-BR'),
+                      records: formatB.length,
+                      originalData: formatA,
+                      processedData: formatB,
+                    })
+                    alert('Upload registrado para ' + client.name)
+                  }}
+                  isAdmin={true}
+                  onConfirm={() => { onLogout(); router.push('/'); }}
+                />
+              </div>
             </CardContent>
           </Card>
         )}
